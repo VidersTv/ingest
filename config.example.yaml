@@ -1,0 +1,31 @@
+level: debug
+
+redis:
+  username: ""
+  password: ""
+  addresses:
+    - "127.0.0.1:6379"
+  database: 0
+  sentinel: false
+
+mongo:
+  uri: "mongodb://127.0.0.1:27017"
+  database: "viders"
+
+rtmp:
+  bind: 0.0.0.0:1935
+  push_url: rtmp://127.0.0.1:1936
+
+monitoring:
+  enabled: true
+  bind: :9100
+  labels:
+    - key: key
+      value: value
+
+health:
+  enabled: true
+  bind: :9101
+
+pod:
+  name: ""
