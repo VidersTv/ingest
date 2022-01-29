@@ -15,9 +15,9 @@ import (
 	"github.com/viderstv/ingest/src/configure"
 	"github.com/viderstv/ingest/src/global"
 	"github.com/viderstv/ingest/src/health"
+	"github.com/viderstv/ingest/src/ingest"
 	"github.com/viderstv/ingest/src/monitoring"
 	"github.com/viderstv/ingest/src/monitoring/prometheus"
-	"github.com/viderstv/ingest/src/rtmp"
 
 	"github.com/bugsnag/panicwrap"
 	"github.com/sirupsen/logrus"
@@ -107,7 +107,7 @@ func main() {
 		})
 	}
 
-	dones := []<-chan struct{}{rtmp.New(gCtx)}
+	dones := []<-chan struct{}{ingest.New(gCtx)}
 	if gCtx.Config().Health.Enabled {
 		dones = append(dones, health.New(gCtx))
 	}

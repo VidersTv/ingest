@@ -88,12 +88,31 @@ type Config struct {
 	NoHeader   bool   `mapstructure:"noheader" json:"noheader"`
 
 	RTMP struct {
-		Bind    string `mapstructure:"bind" json:"bind"`
-		PushURL string `mapstructure:"push_url" json:"push_url"`
+		Bind string `mapstructure:"bind" json:"bind"`
+
+		Auth struct {
+			JwtToken string `mapstructure:"jwt_token" json:"jwt_token"`
+		} `mapstructure:"auth" json:"auth"`
+
+		Ingest struct {
+			URL             string `mapstructure:"url" json:"url"`
+			HeadlessService string `mapstructure:"headless_service" json:"headless_service"`
+		}
+
+		Transcoder struct {
+			URL             string `mapstructure:"url" json:"url"`
+			HeadlessService string `mapstructure:"headless_service" json:"headless_service"`
+		} `mapstructure:"transcoder" json:"transcoder"`
+
+		Muxer struct {
+			URL             string `mapstructure:"url" json:"url"`
+			HeadlessService string `mapstructure:"headless_service" json:"headless_service"`
+		} `mapstructure:"muxer" json:"muxer"`
 	} `mapstructure:"rtmp" json:"rtmp"`
 
 	Pod struct {
 		Name string `mapstructure:"name" json:"name"`
+		IP   string `mapstructure:"ip" json:"ip"`
 	} `mapstructure:"pod" json:"pod"`
 
 	Mongo struct {

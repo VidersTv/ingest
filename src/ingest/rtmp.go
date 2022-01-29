@@ -1,10 +1,10 @@
-package rtmp
+package ingest
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +19,7 @@ import (
 	"github.com/viderstv/common/structures"
 	"github.com/viderstv/common/svc/mongo"
 	"github.com/viderstv/common/utils"
+	"github.com/viderstv/common/utils/ffprobe"
 	"github.com/viderstv/ingest/src/global"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -32,6 +33,7 @@ func New(gCtx global.Context) <-chan struct{} {
 	handler := handler.New()
 
 	mp := map[string]*Stream{}
+	idMp := map[string]string{}
 	mtx := sync.Mutex{}
 
 	server := rtmp.New(rtmp.Config{
@@ -67,23 +69,46 @@ func New(gCtx global.Context) <-chan struct{} {
 					logrus.Error("failed to update mongo: ", err)
 				}
 				delete(mp, info.ID)
+				if idMp[stream.streamID.Hex()] == info.ID {
+					delete(idMp, stream.streamID.Hex())
+				}
 			}
 			mtx.Unlock()
 		},
 		AuthStream: func(info *av.Info, addr net.Addr) bool {
+			localLog := logrus.WithField("info", info.String()).WithField("addr", addr.String())
+
 			start := time.Now()
 			if !info.Publisher {
-				if info.App == "internal" && utils.AddressIsInternal(addr) {
-					info.Key = info.Name
+				if info.App == "internal" {
+					pl := structures.JwtInternalRead{}
+					data, err := hex.DecodeString(info.Name)
+					if err != nil {
+						localLog.Error("failed to decode: ", err)
+						return false
+					}
+
+					if err := structures.DecodeJwt(&pl, gCtx.Config().RTMP.Auth.JwtToken, utils.B2S(data)); err != nil {
+						localLog.Error("failed to decode: ", err)
+						return false
+					}
+
+					mtx.Lock()
+					defer mtx.Unlock()
+					if key, ok := idMp[pl.StreamID.Hex()]; !ok {
+						localLog.Debugf("stream not in map: %s %v", pl.StreamID.Hex(), idMp)
+						return false
+					} else {
+						info.Key = key
+					}
+
 					return true
 				}
-			}
 
-			if info.Publisher && info.App != "live" {
 				return false
 			}
 
-			if !strings.HasPrefix(info.Name, "live_") {
+			if !strings.HasPrefix(info.Name, "live_") || info.App != "live" {
 				return false
 			}
 
@@ -107,7 +132,7 @@ func New(gCtx global.Context) <-chan struct{} {
 			}
 			if err != nil {
 				if err != mongo.ErrNoDocuments {
-					logrus.Error("failed to query user: ", err)
+					localLog.Error("failed to query user: ", err)
 				}
 				return false
 			}
@@ -118,12 +143,12 @@ func New(gCtx global.Context) <-chan struct{} {
 			var sID primitive.ObjectID
 			_sID, err := gCtx.Inst().Redis.Get(gCtx, fmt.Sprintf("unclean-shutdown:%s", uID.Hex()))
 			if err != nil && err != redis.Nil {
-				logrus.Error("failed to query redis: ", err)
+				localLog.Error("failed to query redis: ", err)
 			} else if err != redis.Nil {
 				_ = gCtx.Inst().Redis.Del(gCtx, fmt.Sprintf("unclean-shutdown:%s", uID.Hex()))
 				sID, err = primitive.ObjectIDFromHex(_sID.(string))
 				if err != nil {
-					logrus.Error("invalid entry in redis: ", err)
+					localLog.Error("invalid entry in redis: ", err)
 				}
 			}
 
@@ -146,7 +171,7 @@ func New(gCtx global.Context) <-chan struct{} {
 					err = res.Decode(&stream)
 				}
 				if err != nil {
-					logrus.Error("failed to fetch old stream: ", err)
+					localLog.Error("failed to fetch old stream: ", err)
 					sID = primitive.NilObjectID
 				} else {
 					revision = stream.Revision + 1
@@ -164,7 +189,7 @@ func New(gCtx global.Context) <-chan struct{} {
 					Revision:  revision,
 				})
 				if err != nil {
-					logrus.Error("failed to insert new stream: ", err)
+					localLog.Error("failed to insert new stream: ", err)
 					return false
 				}
 			}
@@ -174,7 +199,7 @@ func New(gCtx global.Context) <-chan struct{} {
 					"channel.last_live": start,
 				},
 			}); err != nil {
-				logrus.Error("failed to update last live: ", err)
+				localLog.Error("failed to update last live: ", err)
 			}
 
 			mtx.Lock()
@@ -184,6 +209,7 @@ func New(gCtx global.Context) <-chan struct{} {
 				streamID: sID,
 				revision: revision,
 			}
+			idMp[sID.Hex()] = info.ID
 			mtx.Unlock()
 
 			return true
@@ -251,6 +277,8 @@ func New(gCtx global.Context) <-chan struct{} {
 				}
 			}
 
+			handler.HandleReader(reader)
+
 			go func() {
 				current := statsFn()
 				for {
@@ -268,22 +296,19 @@ func New(gCtx global.Context) <-chan struct{} {
 				}
 			}()
 			go func() {
-				ffprobeCtx, ffprobeCancel := context.WithTimeout(ctx, time.Second*5)
-				data, err := exec.CommandContext(ffprobeCtx, "ffprobe",
-					"-v", "quiet",
-					"-print_format", "json",
-					"-show_format",
-					"-show_streams",
-					fmt.Sprintf("rtmp://127.0.0.1:1935/internal/%s", info.Key), // rtmp url
-				).CombinedOutput()
-				ffprobeCancel()
+				tkn, err := structures.EncodeJwt(structures.JwtInternalRead{
+					StreamID: stream.streamID,
+				}, gCtx.Config().RTMP.Auth.JwtToken)
 				if err != nil {
-					localLog.Errorf("failed to read stream: %s %s", err.Error(), data)
+					localLog.Error("failed to create jwt token: ", err)
 					return
 				}
-				probeData := FFProbeData{}
-				if err := json.Unmarshal(data, &probeData); err != nil {
-					localLog.Error("failed to read stream: ", err)
+
+				ffprobeCtx, ffprobeCancel := context.WithTimeout(ctx, time.Second*5)
+				probeData, err := ffprobe.Run(ffprobeCtx, fmt.Sprintf("rtmp://%s/internal/%s", gCtx.Config().Pod.IP, hex.EncodeToString(utils.S2B(tkn))))
+				ffprobeCancel()
+				if err != nil {
+					localLog.Error("failed to do ffprobe: ", err.Error())
 					_ = reader.Close()
 					return
 				}
@@ -304,6 +329,25 @@ func New(gCtx global.Context) <-chan struct{} {
 
 			go func() {
 				i := 0
+				resetTimer := make(chan bool)
+				defer close(resetTimer)
+				go func() {
+					timer := time.NewTimer(time.Minute)
+					for {
+						select {
+						case <-reader.Running():
+							return
+						case v := <-resetTimer:
+							if !v {
+								return
+							}
+						case <-timer.C:
+							i = 0
+						}
+						timer.Stop()
+						timer.Reset(time.Minute)
+					}
+				}()
 				for {
 					select {
 					case <-reader.Running():
@@ -311,9 +355,22 @@ func New(gCtx global.Context) <-chan struct{} {
 					default:
 					}
 
+					tkn, err := structures.EncodeJwt(structures.JwtTranscodePayload{
+						StreamID:        stream.streamID,
+						UserID:          stream.userID,
+						TranscodeStream: true,
+						Revision:        stream.revision,
+						IngestPodIP:     gCtx.Config().Pod.IP,
+					}, gCtx.Config().RTMP.Auth.JwtToken)
+					if err != nil {
+						localLog.Error("failed to create jwt token: ", err)
+						return
+					}
+
 					conn := core.NewConnClient()
-					if err := conn.Start(fmt.Sprintf("%s/streamid/%s", gCtx.Config().RTMP.PushURL, stream.streamID.Hex()), av.PUBLISH); err != nil {
+					if err := conn.Start(fmt.Sprintf("rtmp://%s/transcode/%s", gCtx.Config().RTMP.Transcoder.URL, hex.EncodeToString(utils.S2B(tkn))), av.PUBLISH); err != nil {
 						i++
+						resetTimer <- true
 						if i > 5 {
 							_ = reader.Close()
 							return
@@ -322,14 +379,22 @@ func New(gCtx global.Context) <-chan struct{} {
 						continue
 					}
 
-					i = 0
 					writer := rtmp.NewVirWriter(conn, logrus.StandardLogger(), reader.Info(), nil)
 					handler.HandleWriter(writer)
 
 					<-writer.Running()
+
+					i++
+					resetTimer <- true
+					if i > 5 {
+						_ = reader.Close()
+						return
+					}
+
+					time.Sleep(time.Second)
+
 				}
 			}()
-			handler.HandleReader(reader)
 			<-reader.Running()
 		},
 		HandleViewer: func(info av.Info, writer av.WriteCloser) {

@@ -1,31 +1,32 @@
-level: debug
+level: info
 
 redis:
-  username: ""
-  password: ""
+  username: default
+  master_name: mymaster
   addresses:
-    - "127.0.0.1:6379"
+    - redis.redis.svc.cluster.local:26379
   database: 0
-  sentinel: false
+  sentinel: true
 
 mongo:
-  uri: "mongodb://127.0.0.1:27017"
-  database: "viders"
+  database: viders
 
 rtmp:
   bind: 0.0.0.0:1935
-  push_url: rtmp://127.0.0.1:1936
+  
+  ingest:
+    url: ingest.viders.svc.cluster.local:1935
+  
+  transcoder:
+    url: transcoder.viders.svc.cluster.local:1935
+  
+  muxer:
+    url: muxer.viders.svc.cluster.local:1935
 
 monitoring:
   enabled: true
   bind: :9100
-  labels:
-    - key: key
-      value: value
 
 health:
   enabled: true
   bind: :9101
-
-pod:
-  name: ""

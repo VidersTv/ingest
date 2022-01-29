@@ -1,4 +1,4 @@
-package rtmp
+package ingest
 
 import (
 	"github.com/viderstv/common/streaming/av"
