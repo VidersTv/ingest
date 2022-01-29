@@ -13,13 +13,13 @@ mongo:
 
 rtmp:
   bind: 0.0.0.0:1935
-  
+
   ingest:
     url: ingest.viders.svc.cluster.local:1935
-  
+
   transcoder:
     url: transcoder.viders.svc.cluster.local:1935
-  
+
   muxer:
     url: muxer.viders.svc.cluster.local:1935
 
