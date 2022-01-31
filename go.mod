@@ -11,11 +11,9 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.10.1
 	github.com/valyala/fasthttp v1.32.0
-	github.com/viderstv/common v0.0.0-20220129212441-814799018398
+	github.com/viderstv/common v0.0.0-20220131120512-c9f7f37427ef
 	go.mongodb.org/mongo-driver v1.8.2
 )
-
-replace github.com/viderstv/common => ../common
 
 require (
 	github.com/andybalholm/brotli v1.0.2 // indirect
