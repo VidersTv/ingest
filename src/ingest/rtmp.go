@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"github.com/viderstv/common/streaming/protocol/rtmp/handler"
 	"github.com/viderstv/common/structures"
 	"github.com/viderstv/common/svc/mongo"
-	"github.com/viderstv/common/utils"
 	"github.com/viderstv/common/utils/ffprobe"
 	"github.com/viderstv/ingest/src/global"
 	"go.mongodb.org/mongo-driver/bson"
@@ -82,13 +80,8 @@ func New(gCtx global.Context) <-chan struct{} {
 			if !info.Publisher {
 				if info.App == "internal" {
 					pl := structures.JwtInternalRead{}
-					data, err := hex.DecodeString(info.Name)
-					if err != nil {
-						localLog.Error("failed to decode: ", err)
-						return false
-					}
 
-					if err := structures.DecodeJwt(&pl, gCtx.Config().RTMP.Auth.JwtToken, utils.B2S(data)); err != nil {
+					if err := structures.DecodeJwt(&pl, gCtx.Config().RTMP.Auth.JwtToken, info.Name); err != nil {
 						localLog.Error("failed to decode: ", err)
 						return false
 					}
@@ -305,7 +298,7 @@ func New(gCtx global.Context) <-chan struct{} {
 				}
 
 				ffprobeCtx, ffprobeCancel := context.WithTimeout(ctx, time.Second*5)
-				probeData, err := ffprobe.Run(ffprobeCtx, fmt.Sprintf("rtmp://%s/internal/%s", gCtx.Config().Pod.IP, hex.EncodeToString(utils.S2B(tkn))))
+				probeData, err := ffprobe.Run(ffprobeCtx, fmt.Sprintf("rtmp://%s/internal/%s", gCtx.Config().Pod.IP, tkn))
 				ffprobeCancel()
 				if err != nil {
 					localLog.Error("failed to do ffprobe: ", err.Error())
@@ -368,7 +361,7 @@ func New(gCtx global.Context) <-chan struct{} {
 					}
 
 					conn := core.NewConnClient()
-					if err := conn.Start(fmt.Sprintf("rtmp://%s/transcode/%s", gCtx.Config().RTMP.Transcoder.URL, hex.EncodeToString(utils.S2B(tkn))), av.PUBLISH); err != nil {
+					if err := conn.Start(fmt.Sprintf("rtmp://%s/transcode/%s", gCtx.Config().RTMP.Transcoder.URL, tkn), av.PUBLISH); err != nil {
 						i++
 						resetTimer <- true
 						if i > 5 {
